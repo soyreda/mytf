@@ -56,7 +56,7 @@ resource "aws_launch_configuration" "example" {
   image_id        = "ami-0fcf52bcf5db7b003"
   instance_type   = "t2.micro"
   security_groups = [aws_security_group.instance.id]
-  user_data       = file("userdata.tpl")
+  #user_data       = file("userdata.tpl")
   #user_data_replace_on_change = true
   #tags = {
   # Name = "terraform-example"
