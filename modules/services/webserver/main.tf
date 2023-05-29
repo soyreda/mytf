@@ -1,60 +1,15 @@
-resource "aws_s3_bucket" "example" {
-  bucket = "my-tf-test-bucket-bck"
-
-  tags = {
-    Name = "My bucket"
-  Environment = "Dev" }
-
-}
-
-resource "aws_s3_bucket_versioning" "versioning_example" {
-  bucket = aws_s3_bucket.example.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "default" {
-  bucket = aws_s3_bucket.example.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "example" {
-
-  bucket                  = aws_s3_bucket.example.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "terraform-up-and-running-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-}
 module "ec2-instance" {
 
   source        = "terraform-aws-modules/ec2-instance/aws"
   ami           = "ami-0fcf52bcf5db7b003"
   version       = "5.0.0"
-  instance_type = "t2.micro"
+  instance_type = var.instance_type
   name          = "single-instance"
 
 }
 resource "aws_launch_configuration" "example" {
   image_id        = "ami-0fcf52bcf5db7b003"
-  instance_type   = "t2.micro"
+  instance_type   = var.instance_type
   security_groups = [aws_security_group.instance.id]
   user_data       = file("userdata.tpl")
   #user_data_replace_on_change = true
@@ -66,11 +21,19 @@ resource "aws_autoscaling_group" "example" {
   # name                 = "terraform-asg-example"
   launch_configuration = aws_launch_configuration.example.name
   vpc_zone_identifier  = data.aws_subnets.default.ids
-  min_size             = 2
-  max_size             = 10
+  min_size             = var.min_size
+  max_size             = var.max_size
+  dynamic "tag" {
+	for_each = var.custom_tags
+	content {
+key = tag.key
+value = tag.value
+propagate_at_launch = true	
+}
+}
   tag {
     key                 = "Name"
-    value               = "terraform-asg-example"
+    value               = "${var.cluster_name}-asg-example"
     propagate_at_launch = true
   }
   lifecycle {
@@ -90,7 +53,7 @@ data "aws_subnets" "default" {
   }
 }
 resource "aws_security_group" "instance" {
-  name = "terraform-example-instance"
+  name = "${var.cluster_name}-instance"
   ingress {
     from_port   = var.server_port
     to_port     = var.server_port
@@ -107,14 +70,14 @@ resource "aws_security_group" "instance" {
   }
 }
 resource "aws_lb" "example" {
-  name               = "terraform-asg-example"
+  name               = "${var.cluster_name}-asg-example"
   load_balancer_type = "application"
   subnets            = data.aws_subnets.default.ids
   security_groups    = [aws_security_group.alb.id]
 }
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.example.arn
-  port              = 80
+  port              = local.http_port
   protocol          = "HTTP"
 
   default_action {
@@ -127,19 +90,19 @@ resource "aws_lb_listener" "http" {
   }
 }
 resource "aws_security_group" "alb" {
-  name = "terraform-example-alb"
+  name = "${var.cluster_name}-alb"
 
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = local.http_port
+    to_port     = local.http_port
+    protocol    = local.tcp_protocol
+    cidr_blocks = local.all_ips
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = local.any_port
+    to_port     = local.any_port
+    protocol    = local.any_protocol
+    cidr_blocks = local.all_ips
   }
 }
 resource "aws_lb_target_group" "asg" {
